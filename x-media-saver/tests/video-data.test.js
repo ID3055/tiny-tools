@@ -22,3 +22,23 @@ test("rejects untrusted variant URLs and ignores photos", () => {
   const urls = ["https://evil.com/a.mp4", "https://video.twimg.com:444/tweet_video/a.mp4", "https://user@video.twimg.com/tweet_video/a.mp4"];
   assert.deepEqual(extractVideos(tweet("123", [{ type: "video", video_info: { variants: urls.map(url => ({ url, content_type: "video/mp4" })) } }, { type: "photo", video_info: { variants: [variant("a", 1)] } }])), []);
 });
+
+const { extractPhotoPosts } = globalThis.XImageSaverVideoData;
+test("extracts all photos with their actual authors from media grids and quotes", () => {
+  const outer = tweet("123", [{ type: "photo", media_url_https: "https://pbs.twimg.com/media/One.jpg" }, { type: "photo", media_url_https: "https://pbs.twimg.com/media/Two.png" }, { type: "video", media_url_https: "https://pbs.twimg.com/media/VideoPoster.jpg" }]);
+  outer.core = { user_results: { result: { core: { screen_name: "artist" } } } };
+  const quote = tweet("999", [{ type: "photo", media_url_https: "https://pbs.twimg.com/media/Quote.jpg" }]);
+  quote.core = { user_results: { result: { legacy: { screen_name: "other" } } } };
+  outer.quoted_status_result = { result: quote };
+  const posts = extractPhotoPosts(outer);
+  assert.deepEqual(posts.find(post => post.postId === "123"), { author: "artist", postId: "123", images: ["https://pbs.twimg.com/media/One.jpg", "https://pbs.twimg.com/media/Two.png"] });
+  assert.equal(posts.find(post => post.postId === "999").author, "other");
+});
+test("rejects photo entries with missing authors and invalid sources", () => {
+  const node = tweet("123", [{ type: "photo", media_url_https: "https://evil.com/a.jpg" }, { type: "photo", media_url_https: "https://pbs.twimg.com/profile_images/a.jpg" }]);
+  node.user = { screen_name: "artist" };
+  assert.deepEqual(extractPhotoPosts(node), []);
+  delete node.user;
+  node.legacy.extended_entities.media = [{ type: "photo", media_url_https: "https://pbs.twimg.com/media/Good.jpg" }];
+  assert.deepEqual(extractPhotoPosts(node), []);
+});

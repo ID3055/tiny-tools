@@ -35,6 +35,14 @@ python3 scripts/sync-installed.py /path/to/local-install
 - 直播、仅有 HLS 播放列表或不提供 MP4 的视频暂不支持。视频元数据未加载时，可播放一下视频或刷新页面再试。
 - 下载中禁止重复点击。浏览器确认保存完成后显示绿色对勾，提示分别显示新增、跳过、失败数量；失败可重试，只补存未保存的文件。
 
+## 按作者批量下载图片
+
+打开作者主页，点击右下角的「下载此作者图片」。扩展会进入该作者媒体页的图片筛选（`/用户名/media?filter=photo`），自动滚动收集并逐帖保存原图；多图帖子使用页面接口数据中的完整图片列表，视频封面不会当作图片下载。仅收集该作者自己发布的图片，不保存其他作者的转发、引用图片或视频；当前功能不包含视频批量下载。
+
+下载期间请保持该页打开。面板显示发现、保存、跳过和失败数量，可点击「停止」；当前帖已经开始的下载会继续完成，之后不再开始新帖。切换作者或离开媒体页也会停止任务。再次运行沿用现有去重记录，补存未成功保存的图片。
+
+连续 30 秒没有滚动或新图片进展时停止，并提示无法确认全部历史已加载。此功能保存的是 X 当前向登录用户开放的图片；受保护、已删除、未返回的历史内容和限流可能造成不完整，不能保证备份账号全部历史。加载异常会显示错误，可稍后重试。
+
 ## 按内容去重
 
 去重范围是**同一作者的同一媒体目录**：不同作者、不同外层保存目录仍分别归档。
@@ -71,13 +79,14 @@ npm run check
 npm run pack
 ```
 
-自动测试覆盖原图 / 视频 URL、视频清晰度选择、分类归档、SHA-256 标准向量、重复内容、并发点击、删除后仍跳过与强制补存、失败补存和消息来源校验。打包产物为 `dist/x-image-saver.zip`。
+自动测试覆盖原图 / 视频 URL、视频清晰度选择、作者批量收集与停止、多图元数据、分类归档、SHA-256 标准向量、重复内容、并发点击、删除后仍跳过与强制补存、失败补存和消息来源校验。打包产物为 `dist/x-image-saver.zip`。
 
 浏览器模拟页 `tests/fixture.html` 使用模拟扩展 API，不会下载真实文件。安装 `agent-browser` 后，可在 `x-media-saver` 目录启动 `python3 -m http.server 8765 --bind 127.0.0.1`，另开终端运行：
 
 ```sh
 agent-browser --session x-image-saver open http://127.0.0.1:8765/tests/fixture.html
 agent-browser --session x-image-saver eval --stdin < tests/browser-check.js
+agent-browser --session x-image-saver eval --stdin < tests/author-browser-check.js
 agent-browser --session x-image-saver close
 ```
 

@@ -14,7 +14,7 @@
     "run_at": "document_start"
   }, {
     "matches": ["https://x.com/*", "https://www.x.com/*", "https://twitter.com/*", "https://www.twitter.com/*"],
-    "js": ["core.js", "collector.js", "content.js"],
+    "js": ["core.js", "collector.js", "author-download.js", "content.js"],
     "css": ["content.css"],
     "run_at": "document_idle"
   }],

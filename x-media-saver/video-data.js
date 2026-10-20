@@ -27,5 +27,29 @@
     }
     return [...posts].map(([postId, videos]) => ({ postId, videos }));
   }
-  globalThis.XImageSaverVideoData = Object.freeze({ extractVideos });
+  function extractPhotoPosts(root) {
+    const posts = new Map();
+    const stack = [root];
+    while (stack.length) {
+      const node = stack.pop();
+      if (!node || typeof node !== "object") continue;
+      const legacy = node.legacy || node;
+      const id = node.rest_id || legacy.id_str;
+      const user = node.core?.user_results?.result || node.user;
+      const author = user?.core?.screen_name || user?.legacy?.screen_name || user?.screen_name;
+      const media = legacy.extended_entities?.media || legacy.entities?.media;
+      if (/^\d{1,30}$/.test(id) && typeof author === "string" && /^[A-Za-z0-9_]{1,15}$/.test(author) && Array.isArray(media)) {
+        const images = media.filter(item => item.type === "photo").map(item => item.media_url_https).filter(value => {
+          try {
+            const url = new URL(value);
+            return url.protocol === "https:" && url.hostname === "pbs.twimg.com" && !url.username && !url.password && !url.port && /^\/media\/[A-Za-z0-9_-]+(?:\.(?:jpg|jpeg|png|webp|gif|avif))?$/.test(url.pathname);
+          } catch { return false; }
+        });
+        if (images.length && images.length <= 20) posts.set(String(id), { author, postId: String(id), images: [...new Set(images)] });
+      }
+      stack.push(...Object.values(node).filter(value => value && typeof value === "object"));
+    }
+    return [...posts.values()];
+  }
+  globalThis.XImageSaverVideoData = Object.freeze({ extractVideos, extractPhotoPosts });
 })();

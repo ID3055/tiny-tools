@@ -164,11 +164,11 @@
   const observer = new MutationObserver(records => {
     for (const record of records) {
       const target = record.target.nodeType === Node.ELEMENT_NODE ? record.target : record.target.parentElement;
-      if (!target || target.closest(".xis-action, #xis-toast")) continue;
+      if (!target || target.closest(".xis-action, #xis-toast, #xis-author-download")) continue;
       const article = target.closest('article[data-testid="tweet"]');
       if (article) queue(article);
       for (const node of record.addedNodes) {
-        if (node.nodeType !== Node.ELEMENT_NODE || node.matches(".xis-action, #xis-toast")) continue;
+        if (node.nodeType !== Node.ELEMENT_NODE || node.matches(".xis-action, #xis-toast, #xis-author-download")) continue;
         if (node.matches('article[data-testid="tweet"]')) queue(node);
         node.querySelectorAll('article[data-testid="tweet"]').forEach(queue);
       }
@@ -183,6 +183,7 @@
     while (videoData.size > 500) videoData.delete(videoData.keys().next().value);
     document.querySelectorAll('article[data-testid="tweet"]').forEach(queue);
   });
+  globalThis.XImageSaverAuthor?.mount({ send, readPost });
   window.postMessage({ type: "XIS_REQUEST_VIDEO_CACHE" }, location.origin);
   document.querySelectorAll('article[data-testid="tweet"]').forEach(queue);
 })();
