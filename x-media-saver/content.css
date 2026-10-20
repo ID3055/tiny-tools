@@ -1,0 +1,68 @@
+.xis-action {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: 4px;
+  color: rgb(113, 118, 123);
+}
+.xis-save {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 34px;
+  min-height: 34px;
+  margin: -7px 0;
+  padding: 7px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: 12px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  cursor: pointer;
+  transition: color 140ms, background-color 140ms;
+}
+.xis-save svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.xis-save:hover, .xis-save:focus-visible {
+  color: rgb(29, 155, 240);
+  background: rgba(29, 155, 240, .12);
+}
+.xis-save:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.xis-save[data-state="done"] { color: #00a878; }
+.xis-save[data-state="error"] { color: #f45d68; }
+.xis-save:disabled { color: rgb(29, 155, 240); cursor: progress; }
+.xis-save:disabled svg { animation: xis-pulse 1s ease-in-out infinite alternate; }
+#xis-toast {
+  position: fixed;
+  z-index: 2147483647;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 13px 20px;
+  border-radius: 10px;
+  background: #1d9bf0;
+  color: white;
+  box-shadow: 0 4px 20px #0003;
+  font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  pointer-events: none;
+  overflow-wrap: anywhere;
+}
+#xis-toast[hidden] { display: none; }
+#xis-toast[data-error="true"] { background: #bd3342; }
+@keyframes xis-pulse { to { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) {
+  .xis-save { transition: none; }
+  .xis-save:disabled svg { animation: none; }
+}

@@ -1,0 +1,34 @@
+:root { color-scheme: light dark; font: 13px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #18232c; background: #fff; }
+* { box-sizing: border-box; }
+body { width: 350px; margin: 0; padding: 24px; }
+header { display: flex; align-items: center; gap: 12px; }
+h1 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.5px; }
+header p { margin: 0; color: #71808c; font-size: 12px; }
+main { margin-top: 24px; }
+.instruction { margin: 0 0 22px; line-height: 1.9; }
+.download-symbol { display: inline-flex; justify-content: center; width: 23px; color: #1d9bf0; font-size: 21px; font-weight: 600; vertical-align: -2px; }
+label { display: block; margin-bottom: 7px; font-weight: 600; }
+.path { display: flex; align-items: center; gap: 8px; border: 1px solid #dce2e7; border-radius: 8px; padding: 9px 11px; }
+.path:focus-within { border-color: #1d9bf0; outline: 2px solid #1d9bf022; }
+.path span { flex-shrink: 0; color: #71808c; font-size: 12px; }
+input { width: 100%; min-width: 0; border: 0; outline: none; background: transparent; color: inherit; font: inherit; }
+.preview { margin: 8px 0 0; font-size: 11px; color: #1d83c5; overflow-wrap: anywhere; }
+.help { margin: 9px 0 17px; font-size: 12px; color: #71808c; }
+button { font: inherit; cursor: pointer; }
+#save-settings { width: 100%; border: 0; border-radius: 999px; padding: 9px 18px; background: #14222e; color: #fff; font-weight: 600; }
+#save-settings:hover { background: #294054; }
+#save-settings:disabled { opacity: .55; cursor: wait; }
+#status { margin: 7px 0 0; min-height: 20px; font-size: 12px; color: #058962; }
+#status[data-error="true"] { color: #d43e4e; }
+footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #edf0f2; margin-top: 15px; padding-top: 15px; color: #71808c; font-size: 11px; }
+#open-downloads { padding: 0; border: 0; background: none; color: inherit; font-size: 11px; }
+#open-downloads:hover { color: #1d9bf0; }
+button:focus-visible { outline: 2px solid #1d9bf0; outline-offset: 3px; }
+@media (prefers-color-scheme: dark) {
+  :root { background: #11181e; color: #e7edf2; }
+  .path { border-color: #36434d; }
+  #save-settings { background: #e7edf2; color: #14222e; }
+  #save-settings:hover { background: #cbd7e1; }
+  footer { border-color: #29343e; }
+  #status { color: #32c99b; }
+}

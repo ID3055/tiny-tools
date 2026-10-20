@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>X 图片收藏</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header><img src="icons/48.png" width="34" height="34" alt=""><div><h1>X 图片收藏</h1><p>遇见喜欢的，一键收藏。</p></div></header>
+  <main>
+    <p class="instruction">点击帖子旁的 <span class="download-symbol" aria-label="保存">↓</span> 保存原图与视频，按作者分文件夹，已下载过的自动跳过。</p>
+    <p class="help">记录保留在本机，删除文件后仍会跳过。需要补存时，按住 Shift 点击帖子的保存按钮，强制重新下载。</p>
+    <form id="settings">
+      <label for="folder">保存到</label>
+      <div class="path"><span>下载目录 /</span><input id="folder" type="text" maxlength="120" placeholder="可选子目录" autocomplete="off" spellcheck="false" aria-describedby="path-preview folder-help"></div>
+      <p id="path-preview" class="preview"></p>
+      <p id="folder-help" class="help">按 @用户名归档，图片与视频分开存储。留空则使用默认下载目录。</p>
+      <button type="submit" id="save-settings">保存设置</button>
+      <p id="status" role="status" aria-live="polite"></p>
+    </form>
+  </main>
+  <footer><span>SHA-256 去重 · 本地保存</span><button type="button" id="open-downloads">查看下载 ↗</button></footer>
+  <script src="core.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

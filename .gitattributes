@@ -1,0 +1,2 @@
+# Preserve vendored upstream files byte for byte.
+x-media-saver/vendor/** -whitespace

@@ -1,0 +1,11 @@
+{
+  "name": "x-image-saver",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "node --check core.js && node --check collector.js && node --check background.js && node --check content.js && node --check popup.js && node --check offscreen.js && node --check hash.js && node --check video-data.js && node --check media-bridge.js",
+    "pack": "python3 scripts/pack.py"
+  }
+}

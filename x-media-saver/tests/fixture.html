@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>X 图片收藏 · 集成测试</title>
+  <link rel="stylesheet" href="../content.css">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #fff; color: #17222c; font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { width: min(600px, 100%); margin: auto; border-inline: 1px solid #eff3f4; min-height: 100vh; }
+    header { padding: 18px 20px; border-bottom: 1px solid #eff3f4; }
+    h1 { margin: 0; font-size: 19px; } header p { margin: 3px 0 0; font-size: 12px; color: #71808c; }
+    article { padding: 20px; border-bottom: 1px solid #eff3f4; }
+    a { color: inherit; text-decoration: none; } time, .handle { color: #71808c; font-size: 13px; }
+    .photos { display: flex; gap: 3px; overflow: hidden; border-radius: 14px; margin: 13px 0 18px; }
+    [data-testid="tweetPhoto"] { position: relative; height: 160px; width: 100%; background: #c8d9d8; overflow: hidden; }
+    .photos a { flex: 1; }
+    img { width: 100%; height: 100%; object-fit: cover; }
+    [role="group"] { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; color: #71808c; }
+    [role="group"] > button { background: none; border: 0; color: inherit; padding: 0; font: inherit; cursor: pointer; }
+    .quote { border: 1px solid #dce3e8; border-radius: 14px; padding: 12px; }
+    .tools { padding: 20px; display: flex; gap: 12px; }
+    .tools button { border: 1px solid #dce3e8; border-radius: 6px; padding: 6px 10px; background: #fff; cursor: pointer; }
+  </style>
+</head>
+<body>
+<main>
+  <header><h1>X 图片收藏</h1><p>本地模拟页面 · 下载 API 为模拟实现，不会保存真实图片</p></header>
+  <div id="timeline"></div>
+  <div class="tools"><button id="append">追加帖子</button><button id="recycle">复用第一条 DOM</button><button id="fail">下次下载失败</button></div>
+</main>
+<script>
+  const calls = [];
+  let failNext = false;
+  let requestId = 0;
+  const batches = new Map();
+  window.fixture = { calls, batches, statusMode: "complete", statusPolls: 0, skipNext: false };
+  window.chrome = { runtime: { async sendMessage(message) {
+    calls.push(message);
+    if (message.type === "XIS_POST_STATUS") return { ok: true, saved: message.post.postId === "222" ? 1 : 0, total: message.post.images.length + (message.post.videos?.length || 0) };
+    if (message.type === "XIS_DOWNLOAD_POST") {
+      const id = ++requestId;
+      const total = message.post.images.length + (message.post.videos?.length || 0);
+      batches.set(id, { total, failed: failNext, skipped: fixture.skipNext ? total : 0 });
+      fixture.skipNext = false;
+      failNext = false;
+      await new Promise(resolve => setTimeout(resolve, 100));
+      return { ok: true, jobId: id, total };
+    }
+    fixture.statusPolls++;
+    const batch = batches.get(message.jobId);
+    if (fixture.statusMode === "pending") return { ok: true, pending: batch.total, complete: 0, failed: 0 };
+    return { ok: true, pending: 0, complete: batch.failed ? 0 : batch.total - batch.skipped, failed: batch.failed ? batch.total : 0, skipped: batch.skipped };
+  } } };
+  const photo = (author, id, key) => `<a href="https://x.com/${author}/status/${id}/photo/1"><div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/${key}?format=jpg&name=small" alt="测试图片"></div></a>`;
+  const bar = () => `<div role="group" aria-label="帖子操作"><button data-testid="reply" aria-label="评论">♡ 12</button><button data-testid="retweet" aria-label="转发">⇄ 8</button><button data-testid="like" aria-label="喜欢">♡ 128</button><button aria-label="浏览">▥ 2千</button><button aria-label="分享">↥</button></div>`;
+  const header = (author, id) => `<div data-testid="User-Name"><strong>${author}</strong> <span class="handle">@${author} · </span><a href="https://x.com/${author}/status/${id}"><time>10月20日</time></a></div>`;
+  const article = (author, id, body) => `<article data-testid="tweet" id="post-${id}">${header(author, id)}${body}${bar()}</article>`;
+  const timeline = document.getElementById("timeline");
+  timeline.innerHTML = article("artist_one", "111", `<p>这条帖子有两张图片。</p><div class="photos">${photo("artist_one", "111", "FixtureA")}${photo("artist_one", "111", "FixtureB")}</div>`)
+    + article("artist_two", "222", `<p>自己的图片 + 引用帖：只保存自己的这一张。</p><div class="photos">${photo("artist_two", "222", "FixtureC")}</div><div role="link" tabindex="0" class="quote">${header("quoted_artist", "999")}<p>被引用的图片</p><div class="photos">${photo("quoted_artist", "999", "FixtureQuote")}</div></div>`)
+    + article("writer", "333", `<p>纯文字帖子：不显示保存按钮。</p>`)
+    + article("video_author", "444", `<p>视频封面：不显示保存按钮。</p><div data-testid="videoPlayer"><div class="photos">${photo("video_author", "444", "FixtureVideo")}</div></div>`)
+    + article("quote_only", "555", `<p>只引用别人的图片：不显示保存按钮。</p><div role="link" tabindex="0" class="quote">${header("quoted_artist", "999")}<div class="photos">${photo("quoted_artist", "999", "FixtureQuote")}</div></div>`);
+  document.getElementById("append").onclick = () => timeline.insertAdjacentHTML("beforeend", article("new_artist", String(600 + timeline.children.length), `<p>动态加载的新帖子。</p><div class="photos">${photo("new_artist", String(600 + timeline.children.length), "FixtureNew")}</div>`));
+  document.getElementById("recycle").onclick = () => {
+    const first = timeline.firstElementChild;
+    first.querySelector('[data-testid="User-Name"]').innerHTML = header("recycled", "777");
+    first.querySelector(".photos").innerHTML = photo("recycled", "777", "FixtureRecycled");
+  };
+  document.getElementById("fail").onclick = () => { failNext = true; };
+</script>
+<script src="../core.js"></script>
+<script src="../collector.js"></script>
+<script src="../content.js"></script>
+</body>
+</html>

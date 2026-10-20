@@ -1,0 +1,43 @@
+name: X Media Saver
+
+on:
+  push:
+    paths:
+      - 'x-media-saver/**'
+      - '.github/workflows/x-media-saver.yml'
+  pull_request:
+    paths:
+      - 'x-media-saver/**'
+      - '.github/workflows/x-media-saver.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: x-media-saver
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Check JavaScript syntax
+        run: npm run check
+      - name: Run unit tests
+        run: npm test
+      - name: Package extension
+        run: npm run pack
+      - name: Verify ZIP integrity
+        run: python3 -m zipfile -t dist/x-image-saver.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: x-media-saver
+          path: x-media-saver/dist/x-image-saver.zip
+          if-no-files-found: error
