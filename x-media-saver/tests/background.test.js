@@ -3,12 +3,13 @@ import assert from "node:assert/strict";
 import { createHash, webcrypto } from "node:crypto";
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 
-let listener, changed, requests, prepared, local, session, records, bytes, failures, nextId, state, releases;
+let listener, changed, requests, prepared, local, session, records, bytes, failures, nextId, state, releases, localGets, historySearches;
 const extensionId = "test-extension";
 function storage(getStore) {
   return {
     async get(keys) {
       const store = getStore();
+      if (store === local) localGets.push(keys);
       const names = Array.isArray(keys) ? keys : [keys];
       return structuredClone(Object.fromEntries(names.filter(key => key in store).map(key => [key, store[key]])));
     },
@@ -44,6 +45,7 @@ globalThis.chrome = {
       return id;
     },
     async search(query) {
+      historySearches.push(query);
       if (query.id !== undefined) return records[query.id] ? [structuredClone(records[query.id])] : [];
       return Object.values(records).filter(item => new RegExp(query.urlRegex).test(item.url)).map(item => structuredClone(item));
     }
@@ -67,7 +69,7 @@ async function finish(started, source = sender) {
   throw new Error("job did not finish");
 }
 const save = (value = post, force = false) => message({ type: "XIS_DOWNLOAD_POST", post: value, force }).then(finish);
-beforeEach(() => { requests = []; prepared = []; releases = []; local = {}; session = {}; records = {}; bytes = new Map(); failures = new Set(); nextId = 1; state = "complete"; });
+beforeEach(() => { requests = []; prepared = []; releases = []; localGets = []; historySearches = []; local = {}; session = {}; records = {}; bytes = new Map(); failures = new Set(); nextId = 1; state = "complete"; });
 
 test("saves checked bytes once, under the configured author/media directories", async () => {
   local.rootFolder = "X收藏";
@@ -107,6 +109,40 @@ test("date-prefixed naming preserves old filename history in normal and fast mod
   assert.equal(history.items[0].saved, 2);
   assert.equal((await save(value)).skipped, 2);
   assert.equal(requests.length, 1);
+});
+
+test("fast history batches confirmed photos without downloading or hashing", async () => {
+  local.rootFolder = "X_IMG";
+  await save();
+  records = {}; // Confirmed history survives clearing Chrome's downloads.
+  localGets = [];
+  historySearches = [];
+  const result = await message({ type: "XIS_PHOTO_HISTORY", posts: [post, { ...post, postId: "999", images: [one] }] });
+  assert.deepEqual(result, { ok: true, items: [{ postId: post.postId, total: 2, saved: 2 }, { postId: "999", total: 1, saved: 1 }] });
+  assert.equal(prepared.length, 2);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(localGets.map(keys => Array.isArray(keys) ? keys.length : keys), ["rootFolder", 2]);
+  assert.equal(historySearches.length, 0);
+  local.rootFolder = "another_folder";
+  assert.equal((await message({ type: "XIS_PHOTO_HISTORY", posts: [post] })).items[0].saved, 0);
+});
+
+test("fast history treats partial, pending and invalid records as needing review", async () => {
+  await save();
+  const keys = Object.keys(local).filter(key => key.startsWith("xis:url:"));
+  delete local[keys[0]].completedAt;
+  local[keys[1]].id = "invalid";
+  const result = await message({ type: "XIS_PHOTO_HISTORY", posts: [post] });
+  assert.equal(result.items[0].saved, 0);
+});
+
+test("fast history rejects oversized, unsafe and untrusted batches", async () => {
+  for (const posts of [[], Array(101).fill(post), [{ ...post, images: ["https://evil.com/a.jpg"] }], [{ ...post, videos: ["https://video.twimg.com/ext_tw_video/1/a.mp4"] }]]) {
+    assert.equal((await message({ type: "XIS_PHOTO_HISTORY", posts })).ok, false);
+  }
+  assert.equal((await message({ type: "XIS_PHOTO_HISTORY", posts: [post] }, { url: "https://evil.com/", tab: { id: 7 } })).ok, false);
+  assert.equal(requests.length, 0);
+  assert.equal(prepared.length, 0);
 });
 
 test("identical bytes under different URLs and post filenames are skipped", async () => {

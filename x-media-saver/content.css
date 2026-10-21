@@ -97,6 +97,7 @@
   font-weight: 600;
   cursor: pointer;
 }
-#xis-author-download button + button { margin-left: 8px; background: transparent; }
+#xis-author-download .xis-author-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#xis-author-download button + button { background: transparent; }
 #xis-author-download button:disabled { opacity: .65; cursor: default; }
 #xis-author-download button:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }

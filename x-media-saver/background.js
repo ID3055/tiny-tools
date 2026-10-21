@@ -184,6 +184,21 @@ async function handleMessage(message, sender) {
   let origin;
   try { origin = new URL(sender.url).origin; } catch { return { ok: false, error: "页面来源无效。" }; }
   if (!ALLOWED_ORIGINS.has(origin) || !sender.tab) return { ok: false, error: "只支持 X 页面。" };
+  if (message?.type === "XIS_PHOTO_HISTORY") {
+    if (!Array.isArray(message.posts) || !message.posts.length || message.posts.length > 100) throw new Error("每批仅支持查询 1–100 条图片帖子。");
+    const { rootFolder = "" } = await chrome.storage.local.get("rootFolder");
+    const groups = message.posts.map(post => {
+      if (post.videos?.length) throw new Error("快速定位仅支持图片。");
+      return createDownloads(post, rootFolder).map(item => mediaKeys(item).urlKey);
+    });
+    // Read a whole page of durable URL records at once, without creating jobs,
+    // fetching media, hashing bytes, or scanning Chrome's download history.
+    const records = await chrome.storage.local.get([...new Set(groups.flat())]);
+    return { ok: true, items: groups.map((keys, index) => ({
+      postId: message.posts[index].postId, total: keys.length,
+      saved: keys.filter(key => Number.isSafeInteger(records[key]?.id) && records[key].completedAt > 0).length
+    })) };
+  }
   if (message?.type === "XIS_DOWNLOAD_POST") {
     const { rootFolder = "" } = await chrome.storage.local.get("rootFolder");
     const downloads = createDownloads(message.post, rootFolder);

@@ -13,7 +13,8 @@
   document.querySelector("h1").append(document.createTextNode(" · 作者测试"));
   await until(() => document.querySelector("#xis-author-download"));
   const panel = document.querySelector("#xis-author-download");
-  const [start, stop] = panel.querySelectorAll("button");
+  const [start, fast, stop] = panel.querySelectorAll("button");
+  const status = panel.querySelector('[role="status"]');
   assert(panel.querySelector("h2").textContent.includes("@artist_one"), "Profile panel shows the current author");
   const otherBefore = fixture.calls.filter(call => call.type === "XIS_DOWNLOAD_POST").length;
   window.postMessage({ type: "XIS_PHOTO_DATA", items: [
@@ -22,8 +23,14 @@
   ] }, location.origin);
   await new Promise(resolve => setTimeout(resolve, 30));
   fixture.statusMode = "pending";
+  document.querySelector("main").style.minHeight = "4000px";
+  window.scrollTo({ top: 600, behavior: "instant" });
+  const firstPosition = window.scrollY;
+  assert(firstPosition > 0, "Fixture starts partway down the media page");
+  start.focus({ preventScroll: true });
   start.click();
   await until(() => fixture.calls.filter(call => call.type === "XIS_DOWNLOAD_POST").length > otherBefore);
+  assert(window.scrollY === firstPosition, "Starting on the photo page preserves the current scroll position");
   assert(start.disabled && !stop.hidden, "Batch task disables repeated starts and exposes Stop");
   const first = fixture.calls.filter(call => call.type === "XIS_DOWNLOAD_POST").at(-1).post;
   assert(first.postId === "888" && first.images.length === 2 && first.videos.length === 0, "All photos are collected from metadata without needing a visible article");
@@ -31,8 +38,112 @@
   assert(stop.disabled, "Stop immediately prevents another stop request");
   fixture.statusMode = "complete";
   await until(() => !start.disabled);
-  assert(panel.querySelector("p").textContent.includes("保存 2") && panel.querySelector("p").textContent.includes("已停止"), "Stopped task reports completed in-flight photos");
+  assert(status.textContent.includes("保存 2") && status.textContent.includes("已停止"), "Stopped task reports completed in-flight photos");
   assert(fixture.calls.filter(call => call.type === "XIS_DOWNLOAD_POST").length === otherBefore + 1, "Stop starts no further posts and other authors remain excluded");
+  window.scrollTo({ top: 1100, behavior: "instant" });
+  const resumePosition = window.scrollY;
+  const sameDocument = document;
+  const sameUrl = location.href;
+  fixture.statusMode = "pending";
+  fixture.skipNext = true;
+  start.focus({ preventScroll: true });
+  start.click();
+  await until(() => fixture.calls.filter(call => call.type === "XIS_DOWNLOAD_POST").length > otherBefore + 1);
+  assert(window.scrollY === resumePosition && document === sameDocument && location.href === sameUrl, "Collecting again resumes at the current position without refreshing or navigating");
+  stop.click();
+  fixture.statusMode = "complete";
+  await until(() => !start.disabled);
+  assert(status.textContent.includes("跳过 2"), "Resuming still reports photos skipped by existing download history");
+  const beforeLocate = fixture.calls.length;
+  const downloadsBeforeLocate = fixture.calls.filter(call => call.type === "XIS_DOWNLOAD_POST").length;
+  fixture.savedPhotoPosts.add("888");
+  window.postMessage({ type: "XIS_PHOTO_DATA", items: [
+    { author: "artist_one", postId: "1000", images: ["https://pbs.twimg.com/media/UnsavedAbove.jpg"] },
+    { author: "artist_one", postId: "887", images: ["https://pbs.twimg.com/media/UnsavedPhoto.jpg"] }
+  ] }, location.origin);
+  document.getElementById("timeline").replaceChildren();
+  const grid = document.createElement("div");
+  grid.innerHTML = '<a href="/artist_one/status/1000/photo/1" style="display:block;height:80px">上方未保存的图片</a><div style="height:1000px"></div><a href="/artist_one/status/888/photo/1" style="display:block;height:50px">已保存的图片</a>';
+  document.querySelector("main").append(grid);
+  const tile = document.createElement("a");
+  tile.href = "/artist_one/status/887/photo/1";
+  tile.textContent = "未保存的图片";
+  tile.style.cssText = "display:block;height:50px";
+  grid.append(tile);
+  grid.querySelector('a[href*="/888/"]').scrollIntoView({ block: "center", behavior: "instant" });
+  const locatePosition = window.scrollY;
+  await new Promise(resolve => setTimeout(resolve, 30));
+  const sendMessage = chrome.runtime.sendMessage;
+  let releaseQuery, queryEntered = false;
+  const queryGate = new Promise(resolve => { releaseQuery = resolve; });
+  chrome.runtime.sendMessage = async message => {
+    if (message.type === "XIS_PHOTO_HISTORY") { queryEntered = true; await queryGate; }
+    return sendMessage(message);
+  };
+  fixture.statusMode = "pending";
+  fast.focus({ preventScroll: true });
+  fast.click();
+  assert(start.disabled && fast.disabled && !stop.hidden, "Fast location and normal downloading cannot run together");
+  await until(() => queryEntered);
+  assert(window.scrollY === locatePosition, "Manual scrolling sets the fast-location starting position without a refresh or jump to the top");
+  assert(!fixture.calls.slice(beforeLocate).some(call => call.type === "XIS_DOWNLOAD_POST" || call.type === "XIS_JOB_STATUS"), "The history-query phase creates no downloads or download-job polls");
+  releaseQuery();
+  await until(() => fixture.calls.filter(call => call.type === "XIS_DOWNLOAD_POST").length > downloadsBeforeLocate);
+  const locateCalls = fixture.calls.slice(beforeLocate);
+  assert(locateCalls.some(call => call.type === "XIS_PHOTO_HISTORY" && call.posts.length > 1), "Fast location queries photo history in batches");
+  assert(locateCalls.filter(call => call.type === "XIS_PHOTO_HISTORY").every(call => call.posts.every(post => post.postId !== "1000")), "Fast lookup excludes unsaved cached posts above the manually chosen start");
+  assert(fixture.calls.filter(call => call.type === "XIS_DOWNLOAD_POST").at(-1).post.postId === "887", "Fast mode automatically downloads the first unknown post without creating jobs for confirmed cached photos");
+  assert(start.disabled && fast.disabled && !stop.hidden && status.textContent.includes("正在收集和下载"), "Fast mode automatically switches to normal downloading without another click");
+  assert(status.textContent.includes("发现 3 张") && status.textContent.includes("跳过 2"), "Switching to downloads retains discovered and skipped counts from fast location");
+  const tileRect = tile.getBoundingClientRect();
+  assert(tileRect.top >= 0 && tileRect.top < innerHeight, "The located photo is scrolled into view");
+  stop.click();
+  fixture.statusMode = "complete";
+  await until(() => !start.disabled);
+  assert(status.textContent.includes("发现 3 张") && status.textContent.includes("保存 1") && status.textContent.includes("跳过 2"), "Finishing the current post adds to fast-location totals without counting photos twice");
+  assert(document.activeElement === start && stop.hidden, "Focus returns to the download button after fast mode stops");
+  const downloadsBeforeStop = fixture.calls.filter(call => call.type === "XIS_DOWNLOAD_POST").length;
+  let finishStoppedQuery, stoppedQueryEntered = false;
+  const stoppedGate = new Promise(resolve => { finishStoppedQuery = resolve; });
+  chrome.runtime.sendMessage = async message => {
+    if (message.type === "XIS_PHOTO_HISTORY") { stoppedQueryEntered = true; await stoppedGate; }
+    return sendMessage(message);
+  };
+  fast.click();
+  await until(() => stoppedQueryEntered);
+  stop.click();
+  finishStoppedQuery();
+  await until(() => !fast.disabled);
+  assert(fixture.calls.filter(call => call.type === "XIS_DOWNLOAD_POST").length === downloadsBeforeStop, "Stopping during fast history lookup prevents automatic downloads");
+  chrome.runtime.sendMessage = sendMessage;
+  const beforeReposition = fixture.calls.length;
+  window.postMessage({ type: "XIS_PHOTO_DATA", items: [
+    { author: "artist_one", postId: "886", images: ["https://pbs.twimg.com/media/LowerPhoto.jpg"] }
+  ] }, location.origin);
+  const lower = document.createElement("a");
+  lower.href = "/artist_one/status/886/photo/1";
+  lower.textContent = "手动滚动后的图片";
+  lower.style.cssText = "display:block;height:60px;margin-top:1000px";
+  grid.append(lower);
+  lower.scrollIntoView({ block: "center", behavior: "instant" });
+  await new Promise(resolve => setTimeout(resolve, 30));
+  fixture.statusMode = "pending";
+  fast.click();
+  await until(() => fixture.calls.slice(beforeReposition).some(call => call.type === "XIS_DOWNLOAD_POST"));
+  const repositionCalls = fixture.calls.slice(beforeReposition);
+  assert(repositionCalls.filter(call => call.type === "XIS_PHOTO_HISTORY").every(call => call.posts.every(post => post.postId === "886")), "Starting fast mode again captures the newly chosen position and ignores earlier cached boundaries");
+  assert(repositionCalls.filter(call => call.type === "XIS_DOWNLOAD_POST").every(call => call.post.postId === "886"), "Automatic downloading stays below the new starting position");
+  stop.click();
+  fixture.statusMode = "complete";
+  await until(() => !fast.disabled);
+  const blank = document.createElement("div");
+  blank.style.height = "1000px";
+  grid.append(blank);
+  window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" });
+  const beforeBlank = fixture.calls.length;
+  fast.click();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert(!fast.disabled && status.textContent.includes("当前位置没有已加载的图片") && !fixture.calls.slice(beforeBlank).some(call => call.type === "XIS_PHOTO_HISTORY"), "An unloaded starting position never falls back to scanning old cached posts");
   history.replaceState(null, "", "/home");
   window.dispatchEvent(new PopStateEvent("popstate"));
   assert(panel.hidden, "Panel hides when leaving an author profile");
