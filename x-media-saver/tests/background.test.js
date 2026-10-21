@@ -89,6 +89,26 @@ test("same URL skips existing files without reading or hashing them again", asyn
   assert.equal(requests.length, 2);
 });
 
+test("date-prefixed naming preserves old filename history in normal and fast modes", async () => {
+  local.rootFolder = "X_IMG";
+  const value = { ...post, postId: "1840000000000000000" };
+  const filename = "X_IMG/artist/图片/1840000000000000000_1.jpg";
+  const urlKey = `xis:url:${JSON.stringify(["X_IMG/artist/图片", "One", "jpg"])}`;
+  local[urlKey] = { id: 90, filename, completedAt: 1234 };
+  const status = await message({ type: "XIS_POST_STATUS", post: value });
+  assert.equal(status.saved, 1);
+  const result = await save(value);
+  assert.equal(result.skipped, 1);
+  assert.equal(result.complete, 1);
+  assert.deepEqual(prepared, [two]);
+  assert.equal(requests[0].filename, "X_IMG/artist/图片/2024-09-28_20-06-00_1840000000000000000_2.png");
+  assert.equal(local[urlKey].filename, filename);
+  const history = await message({ type: "XIS_PHOTO_HISTORY", posts: [value] });
+  assert.equal(history.items[0].saved, 2);
+  assert.equal((await save(value)).skipped, 2);
+  assert.equal(requests.length, 1);
+});
+
 test("identical bytes under different URLs and post filenames are skipped", async () => {
   bytes.set(one, "identical image"); bytes.set(two, "identical image");
   const result = await save();

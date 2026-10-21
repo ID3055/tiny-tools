@@ -51,6 +51,18 @@
     return { url: url.href, key: url.pathname, extension: "mp4" };
   }
 
+  function postTimePrefix(postId) {
+    const id = BigInt(postId);
+    // Early, pre-Snowflake IDs have no timestamp. Exclude the ambiguous
+    // transition period and IDs outside X's signed 64-bit range.
+    if (id < 1_000_000_000_000n || id > 9_223_372_036_854_775_807n) return "";
+    // Decode before converting to Number: full post IDs exceed safe integers.
+    // Use a fixed UTC+08:00 offset so filenames stay stable across computers.
+    const publishedAt = Number((id >> 22n) + 1_288_834_974_657n);
+    const stamp = new Date(publishedAt + 8 * 60 * 60 * 1000).toISOString();
+    return `${stamp.slice(0, 19).replace("T", "_").replaceAll(":", "-")}_`;
+  }
+
   function createDownloads(post, folder = "") {
     if (!post || typeof post.author !== "string" || typeof post.postId !== "string" || !AUTHOR.test(post.author) || !POST_ID.test(post.postId) || !Array.isArray(post.images) || post.images.length > 20 || (post.videos !== undefined && !Array.isArray(post.videos))) {
       throw new Error("帖子信息无效，请刷新页面后重试。");
@@ -58,6 +70,7 @@
     const videos = post.videos || [];
     if (videos.length > 20 || !post.images.length && !videos.length) throw new Error("帖子没有可保存的图片或视频。");
     const root = normalizeFolder(folder);
+    const prefix = postTimePrefix(post.postId);
     return [[post.images, originalImage, "图片"], [videos, originalVideo, "视频"]].flatMap(([sources, parse, kind]) => {
       const unique = new Map();
       for (const source of sources) {
@@ -66,7 +79,7 @@
       }
       return [...unique.values()].map((media, index) => ({
         url: media.url,
-        filename: [root, post.author, kind, `${post.postId}_${index + 1}.${media.extension}`].filter(Boolean).join("/"),
+        filename: [root, post.author, kind, `${prefix}${post.postId}_${index + 1}.${media.extension}`].filter(Boolean).join("/"),
         conflictAction: "uniquify",
         saveAs: false
       }));

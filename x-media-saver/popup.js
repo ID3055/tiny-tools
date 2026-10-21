@@ -6,7 +6,7 @@ const saveButton = document.getElementById("save-settings");
 
 function preview() {
   const prefix = folder.value.trim().replace(/\\/g, "/");
-  document.getElementById("path-preview").textContent = `${prefix ? prefix + "/" : ""}author/{图片, 视频}/帖子ID_序号`;
+  document.getElementById("path-preview").textContent = `${prefix ? prefix + "/" : ""}author/{图片, 视频}/发布时间_帖子ID_序号`;
 }
 
 function showStatus(message, error = false) {

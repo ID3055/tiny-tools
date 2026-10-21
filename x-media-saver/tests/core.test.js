@@ -24,17 +24,56 @@ test("rejects avatars, video previews, remote hosts and unsupported files", () =
   for (const url of ["http://pbs.twimg.com/media/a.jpg", "https://pbs.twimg.com.evil.com/media/a.jpg", "https://pbs.twimg.com:444/media/a.jpg", "https://user:pass@pbs.twimg.com/media/a.jpg", "https://pbs.twimg.com/profile_images/a.jpg", "https://pbs.twimg.com/ext_tw_video_thumb/a.jpg", "https://pbs.twimg.com/media/a?format=html", "https://pbs.twimg.com/media/a.svg"]) assert.throws(() => originalImage(url));
 });
 
-test("builds author directories, stable post filenames and original-quality URLs", () => {
+test("builds author directories, publish-time filenames and original-quality URLs", () => {
   const files = createDownloads(post);
-  assert.deepEqual(files.map(file => file.filename), ["artist_01/图片/1840000000000000000_1.jpg", "artist_01/图片/1840000000000000000_2.png"]);
+  assert.deepEqual(files.map(file => file.filename), ["artist_01/图片/2024-09-28_20-06-00_1840000000000000000_1.jpg", "artist_01/图片/2024-09-28_20-06-00_1840000000000000000_2.png"]);
   assert.ok(files.every(file => file.url.endsWith("name=orig") && !file.saveAs && file.conflictAction === "uniquify"));
-  assert.equal(createDownloads(post, "X收藏/插画")[0].filename, "X收藏/插画/artist_01/图片/1840000000000000000_1.jpg");
+  assert.equal(createDownloads(post, "X收藏/插画")[0].filename, "X收藏/插画/artist_01/图片/2024-09-28_20-06-00_1840000000000000000_1.jpg");
+});
+
+function snowflake(iso, lowerBits = 0n) {
+  return (((BigInt(Date.parse(iso)) - 1_288_834_974_657n) << 22n) | lowerBits).toString();
+}
+
+test("uses the post's exact UTC+8 publication date across day, year and leap-day boundaries", () => {
+  for (const [iso, prefix] of [
+    ["2025-12-31T15:59:59.999Z", "2025-12-31_23-59-59"],
+    ["2025-12-31T16:00:00.000Z", "2026-01-01_00-00-00"],
+    ["2024-02-28T16:00:00.000Z", "2024-02-29_00-00-00"],
+    ["2024-02-29T16:00:00.000Z", "2024-03-01_00-00-00"]
+  ]) {
+    // Max lower bits catch rounding that would move the ID into the next second.
+    const postId = snowflake(iso, (1n << 22n) - 1n);
+    assert.equal(createDownloads({ ...post, postId })[0].filename, `artist_01/图片/${prefix}_${postId}_1.jpg`);
+  }
+});
+
+test("publication filenames sort chronologically and do not depend on the computer timezone", () => {
+  const previousTZ = process.env.TZ;
+  try {
+    const posts = ["2026-01-02T00:00:00Z", "2025-12-31T15:59:59Z", "2025-12-31T16:00:00Z"].map(iso => ({ ...post, postId: snowflake(iso) }));
+    for (const zone of ["UTC", "America/New_York", "Asia/Tokyo"]) {
+      process.env.TZ = zone;
+      const filenames = posts.map(value => createDownloads(value)[0].filename);
+      assert.deepEqual([...filenames].sort(), [filenames[1], filenames[2], filenames[0]]);
+      assert.ok(filenames[2].includes("/2026-01-01_00-00-00_"));
+    }
+  } finally {
+    if (previousTZ === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTZ;
+  }
+});
+
+test("keeps legacy filenames when a publication timestamp cannot be recovered", () => {
+  for (const postId of ["20", "123456", "20000000000", "9223372036854775808", "9".repeat(30)]) {
+    assert.equal(createDownloads({ ...post, postId })[0].filename, `artist_01/图片/${postId}_1.jpg`);
+  }
 });
 
 test("accepts video-only posts and separates video and image directories", () => {
   const videos = ["https://video.twimg.com/ext_tw_video/123/pu/vid/avc1/720x1280/a.mp4?tag=1"];
   const files = createDownloads({ ...post, videos });
-  assert.equal(files[2].filename, "artist_01/视频/1840000000000000000_1.mp4");
+  assert.equal(files[2].filename, "artist_01/视频/2024-09-28_20-06-00_1840000000000000000_1.mp4");
   assert.equal(createDownloads({ ...post, images: [], videos }).length, 1);
 });
 
