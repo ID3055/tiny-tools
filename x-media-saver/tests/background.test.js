@@ -114,6 +114,41 @@ test("author history rejects invalid authors and untrusted pages", async () => {
   assert.equal((await message({ type: "XIS_AUTHOR_HISTORY", author: "artist" }, { url: "https://evil.com", tab: { id: 7 } })).ok, false);
 });
 
+test("video author history and fast location use only confirmed video records in the current folder", async () => {
+  local.rootFolder = "X_IMG";
+  const value = { author: "artist", postId: "123456", images: [], videos: ["https://video.twimg.com/tweet_video/VideoOne.mp4", "https://video.twimg.com/tweet_video/VideoTwo.mp4"] };
+  await save(value);
+  await save(post);
+  const beforePrepared = prepared.length, beforeNative = historySearches.length;
+  const lookup = await message({ type: "XIS_VIDEO_HISTORY", posts: [value, { ...value, postId: "999", videos: [...value.videos, "https://video.twimg.com/tweet_video/Missing.mp4"] }] });
+  assert.deepEqual(lookup, { ok: true, items: [{ postId: "123456", total: 2, saved: 2 }, { postId: "999", total: 3, saved: 2 }] });
+  assert.equal(prepared.length, beforePrepared);
+  assert.equal(historySearches.length, beforeNative);
+  records = {};
+  assert.deepEqual(await message({ type: "XIS_AUTHOR_HISTORY", author: "ARTIST", mediaType: "video" }), { ok: true, posts: 1, videos: 2 });
+  assert.deepEqual(await message({ type: "XIS_AUTHOR_HISTORY", author: "artist", mediaType: "image" }), { ok: true, posts: 1, images: 2 });
+  local.rootFolder = "elsewhere";
+  assert.deepEqual(await message({ type: "XIS_AUTHOR_HISTORY", author: "artist", mediaType: "video" }), { ok: true, posts: 0, videos: 0 });
+  assert.equal((await message({ type: "XIS_VIDEO_HISTORY", posts: [post] })).ok, false);
+  assert.equal((await message({ type: "XIS_VIDEO_HISTORY", posts: [value] }, { url: "https://evil.com", tab: { id: 7 } })).ok, false);
+  assert.equal((await message({ type: "XIS_AUTHOR_HISTORY", author: "artist", mediaType: "invalid" })).ok, false);
+});
+
+test("pending and interrupted video attempts remain eligible for fast location and retry", async () => {
+  const value = { author: "artist", postId: "123456", images: [], videos: ["https://video.twimg.com/tweet_video/Pending.mp4"] };
+  state = "in_progress";
+  const started = await message({ type: "XIS_DOWNLOAD_POST", post: value });
+  for (let i = 0; i < 20; i++) await tick();
+  assert.equal((await message({ type: "XIS_VIDEO_HISTORY", posts: [value] })).items[0].saved, 0);
+  records[1].state = "interrupted";
+  records[1].error = "NETWORK_FAILED";
+  await finish(started);
+  assert.equal((await message({ type: "XIS_AUTHOR_HISTORY", author: "artist", mediaType: "video" })).videos, 0);
+  state = "complete";
+  await save(value);
+  assert.equal((await message({ type: "XIS_VIDEO_HISTORY", posts: [value] })).items[0].saved, 1);
+});
+
 test("date-prefixed naming preserves old filename history in normal and fast modes", async () => {
   local.rootFolder = "X_IMG";
   const value = { ...post, postId: "1840000000000000000" };

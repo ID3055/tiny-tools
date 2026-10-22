@@ -42,3 +42,17 @@ test("rejects photo entries with missing authors and invalid sources", () => {
   node.legacy.extended_entities.media = [{ type: "photo", media_url_https: "https://pbs.twimg.com/media/Good.jpg" }];
   assert.deepEqual(extractPhotoPosts(node), []);
 });
+
+test("author video metadata preserves authors, quotes, GIFs and the highest MP4 quality", () => {
+  const { extractVideoPosts } = globalThis.XImageSaverVideoData;
+  const high = variant("high", 2000), low = variant("low", 500), gif = variant("gif", 1);
+  const outer = tweet("123", [{ type: "video", video_info: { variants: [low, high] } }, { type: "animated_gif", video_info: { variants: [gif] } }]);
+  outer.core = { user_results: { result: { core: { screen_name: "artist" } } } };
+  const quote = tweet("999", [{ type: "video", video_info: { variants: [low] } }]);
+  quote.user = { screen_name: "other" };
+  outer.quoted_status_result = { result: quote };
+  const posts = extractVideoPosts(outer);
+  assert.deepEqual(posts.find(post => post.postId === "123"), { author: "artist", postId: "123", videos: [high.url, gif.url] });
+  assert.equal(posts.find(post => post.postId === "999").author, "other");
+  assert.deepEqual(extractVideoPosts(tweet("888", outer.legacy.extended_entities.media)), []);
+});

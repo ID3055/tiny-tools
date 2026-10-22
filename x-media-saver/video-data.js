@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  function extractVideos(root) {
+  function extractVideos(root, withAuthor = false) {
     const posts = new Map();
     const stack = [root];
     while (stack.length) {
@@ -9,7 +9,9 @@
       const legacy = node.legacy || node;
       const id = node.rest_id || legacy.id_str;
       const media = legacy.extended_entities?.media || legacy.entities?.media;
-      if (/^\d{1,30}$/.test(id) && Array.isArray(media)) {
+      const user = node.core?.user_results?.result || node.user;
+      const author = user?.core?.screen_name || user?.legacy?.screen_name || user?.screen_name;
+      if (/^\d{1,30}$/.test(id) && Array.isArray(media) && (!withAuthor || typeof author === "string" && /^[A-Za-z0-9_]{1,15}$/.test(author))) {
         const videos = [];
         for (const item of media) {
           if (!["video", "animated_gif"].includes(item.type)) continue;
@@ -21,11 +23,14 @@
           }).sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
           if (variants[0]) videos.push(variants[0].url);
         }
-        if (videos.length) posts.set(String(id), [...new Set(videos)]);
+        if (videos.length) {
+          const unique = [...new Set(videos)];
+          posts.set(String(id), withAuthor ? { author, postId: String(id), videos: unique } : unique);
+        }
       }
       stack.push(...Object.values(node).filter(value => value && typeof value === "object"));
     }
-    return [...posts].map(([postId, videos]) => ({ postId, videos }));
+    return withAuthor ? [...posts.values()] : [...posts].map(([postId, videos]) => ({ postId, videos }));
   }
   function extractPhotoPosts(root) {
     const posts = new Map();
@@ -51,5 +56,6 @@
     }
     return [...posts.values()];
   }
-  globalThis.XImageSaverVideoData = Object.freeze({ extractVideos, extractPhotoPosts });
+  const extractVideoPosts = root => extractVideos(root, true);
+  globalThis.XImageSaverVideoData = Object.freeze({ extractVideos, extractPhotoPosts, extractVideoPosts });
 })();

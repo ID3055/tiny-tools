@@ -192,6 +192,8 @@ async function handleMessage(message, sender) {
   if (!ALLOWED_ORIGINS.has(origin) || !sender.tab) return { ok: false, error: "只支持 X 页面。" };
   if (message?.type === "XIS_AUTHOR_HISTORY") {
     if (typeof message.author !== "string" || !/^[A-Za-z0-9_]{1,15}$/.test(message.author)) throw new Error("作者信息无效。");
+    if (message.mediaType !== undefined && !["image", "video"].includes(message.mediaType)) throw new Error("媒体类型无效。");
+    const kind = message.mediaType === "video" ? "视频" : "图片";
     const records = await chrome.storage.local.get(null);
     const root = normalizeFolder(records.rootFolder || "");
     const prefix = root ? `${root}/` : "";
@@ -202,20 +204,21 @@ async function handleMessage(message, sender) {
       try { [scope] = JSON.parse(key.slice("xis:url:".length)); } catch { continue; }
       if (typeof scope !== "string" || !scope.startsWith(prefix)) continue;
       const parts = scope.slice(prefix.length).split("/");
-      if (parts.length !== 2 || parts[0].toLowerCase() !== message.author.toLowerCase() || parts[1] !== "图片") continue;
+      if (parts.length !== 2 || parts[0].toLowerCase() !== message.author.toLowerCase() || parts[1] !== kind) continue;
       // URL aliases and content-hash records can refer to the same saved file.
       files.add(record.id);
       const filename = record.filename?.replace(/\\/g, "/").split("/").pop();
       const match = filename?.match(/(?:^|_)(\d{1,30})_\d+\.[^.]+$/);
       if (match) posts.add(match[1]);
     }
-    return { ok: true, posts: posts.size, images: files.size };
+    return { ok: true, posts: posts.size, [kind === "视频" ? "videos" : "images"]: files.size };
   }
-  if (message?.type === "XIS_PHOTO_HISTORY") {
-    if (!Array.isArray(message.posts) || !message.posts.length || message.posts.length > 100) throw new Error("每批仅支持查询 1–100 条图片帖子。");
+  if (["XIS_PHOTO_HISTORY", "XIS_VIDEO_HISTORY"].includes(message?.type)) {
+    const video = message.type === "XIS_VIDEO_HISTORY";
+    if (!Array.isArray(message.posts) || !message.posts.length || message.posts.length > 100) throw new Error("每批仅支持查询 1–100 条媒体帖子。");
     const { rootFolder = "" } = await chrome.storage.local.get("rootFolder");
     const groups = message.posts.map(post => {
-      if (post.videos?.length) throw new Error("快速定位仅支持图片。");
+      if (video ? post.images?.length || !post.videos?.length : post.videos?.length) throw new Error("快速定位的媒体类型不匹配。");
       return createDownloads(post, rootFolder).map(item => mediaKeys(item).urlKey);
     });
     // Read a whole page of durable URL records at once, without creating jobs,
