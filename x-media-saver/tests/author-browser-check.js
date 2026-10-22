@@ -15,6 +15,9 @@
   const panel = document.querySelector("#xis-author-download");
   const [start, fast, stop] = panel.querySelectorAll("button");
   const status = panel.querySelector('[role="status"]');
+  const historyStatus = panel.querySelector(".xis-history-summary");
+  await until(() => historyStatus.textContent.includes("7 帖 · 12 张"));
+  assert(historyStatus.textContent.includes("历史已存"), "The panel shows historical post and image totals before starting a task");
   assert(panel.querySelector("h2").textContent.includes("@artist_one"), "Profile panel shows the current author");
   const otherBefore = fixture.calls.filter(call => call.type === "XIS_DOWNLOAD_POST").length;
   window.postMessage({ type: "XIS_PHOTO_DATA", items: [
@@ -36,9 +39,13 @@
   assert(first.postId === "888" && first.images.length === 2 && first.videos.length === 0, "All photos are collected from metadata without needing a visible article");
   stop.click();
   assert(stop.disabled, "Stop immediately prevents another stop request");
+  fixture.history = { posts: 8, images: 14 };
   fixture.statusMode = "complete";
   await until(() => !start.disabled);
   assert(status.textContent.includes("保存 2") && status.textContent.includes("已停止"), "Stopped task reports completed in-flight photos");
+  assert(status.textContent.includes("本次处理 1 帖") && status.textContent.includes("发现 2 张"), "A multi-photo post contributes one post and multiple images to current-task statistics");
+  await until(() => historyStatus.textContent.includes("8 帖 · 14 张"));
+  assert(historyStatus.textContent.includes("8 帖 · 14 张"), "Historical totals refresh after an in-flight download finishes");
   assert(fixture.calls.filter(call => call.type === "XIS_DOWNLOAD_POST").length === otherBefore + 1, "Stop starts no further posts and other authors remain excluded");
   window.scrollTo({ top: 1100, behavior: "instant" });
   const resumePosition = window.scrollY;
@@ -95,6 +102,7 @@
   assert(fixture.calls.filter(call => call.type === "XIS_DOWNLOAD_POST").at(-1).post.postId === "887", "Fast mode automatically downloads the first unknown post without creating jobs for confirmed cached photos");
   assert(start.disabled && fast.disabled && !stop.hidden && status.textContent.includes("正在收集和下载"), "Fast mode automatically switches to normal downloading without another click");
   assert(status.textContent.includes("发现 3 张") && status.textContent.includes("跳过 2"), "Switching to downloads retains discovered and skipped counts from fast location");
+  assert(status.textContent.includes("本次处理 2 帖"), "Switching from fast location preserves the post count without counting the boundary post twice");
   const tileRect = tile.getBoundingClientRect();
   assert(tileRect.top >= 0 && tileRect.top < innerHeight, "The located photo is scrolled into view");
   stop.click();
@@ -144,8 +152,52 @@
   fast.click();
   await new Promise(resolve => setTimeout(resolve, 50));
   assert(!fast.disabled && status.textContent.includes("当前位置没有已加载的图片") && !fixture.calls.slice(beforeBlank).some(call => call.type === "XIS_PHOTO_HISTORY"), "An unloaded starting position never falls back to scanning old cached posts");
+  lower.scrollIntoView({ block: "center", behavior: "instant" });
+  let failDownload = false;
+  chrome.runtime.sendMessage = async message => {
+    const response = await sendMessage(message);
+    if (message.type === "XIS_JOB_STATUS") {
+      response.current = { index: 1, total: 1 };
+      if (failDownload && !response.pending) Object.assign(response, { complete: 0, skipped: 0, failed: 1, error: "媒体读取失败（HTTP 429）。" });
+    }
+    return response;
+  };
+  fixture.statusMode = "pending";
+  fast.click();
+  await until(() => document.querySelector("#xis-photo-marker .xis-photo-box") && panel.querySelector(".xis-current-position").textContent.includes("第 1/1 张"));
+  const marker = document.getElementById("xis-photo-marker");
+  assert(Math.abs(marker.firstElementChild.getBoundingClientRect().top - lower.getBoundingClientRect().top) < 2, "The current-image border matches the active photo on screen");
+  assert(getComputedStyle(marker).pointerEvents === "none", "The image marker leaves page clicks and scrolling available");
+  const beforeMarkerScroll = lower.getBoundingClientRect().top;
+  window.scrollBy({ top: 100, behavior: "instant" });
+  await until(() => Math.abs(marker.firstElementChild?.getBoundingClientRect().top - lower.getBoundingClientRect().top) < 2);
+  assert(lower.getBoundingClientRect().top < beforeMarkerScroll, "The marker follows manual scrolling without moving the page itself");
+  failDownload = true;
+  fixture.statusMode = "complete";
+  await until(() => !fast.disabled);
+  const details = panel.querySelector(".xis-error-detail");
+  assert(details.textContent.includes("HTTP 429") && status.textContent.includes("失败 1") && status.textContent.includes("已停止"), "A failed download keeps its specific reason visible alongside counts after stopping");
+  let markerMutations = 0;
+  const markerObserver = new MutationObserver(() => markerMutations++);
+  markerObserver.observe(marker, { childList: true });
+  await new Promise(resolve => setTimeout(resolve, 100));
+  markerObserver.disconnect();
+  assert(markerMutations < 3, "Marker updates do not trigger an endless mutation-observer loop");
+  failDownload = false;
+  fixture.statusMode = "pending";
+  const beforeFailureResume = fixture.calls.length;
+  fast.click();
+  await until(() => fixture.calls.slice(beforeFailureResume).some(call => call.type === "XIS_JOB_STATUS"));
+  window.postMessage({ type: "XIS_TIMELINE_STATUS", path: location.pathname, error: "X 请求过于频繁，已限流（HTTP 429）。" }, location.origin);
+  await new Promise(resolve => setTimeout(resolve, 30));
+  fixture.statusMode = "complete";
+  await until(() => !fast.disabled);
+  assert(details.textContent.includes("停止原因") && details.textContent.includes("HTTP 429"), "A media-timeline API error explains why collection stopped");
+  chrome.runtime.sendMessage = sendMessage;
   history.replaceState(null, "", "/home");
   window.dispatchEvent(new PopStateEvent("popstate"));
   assert(panel.hidden, "Panel hides when leaving an author profile");
+  await until(() => !marker.childElementCount);
+  assert(!marker.childElementCount, "The current-image marker clears when leaving the author profile");
   return { passed: checks.length, checks };
 })();

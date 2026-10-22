@@ -10,7 +10,7 @@ function storage(getStore) {
     async get(keys) {
       const store = getStore();
       if (store === local) localGets.push(keys);
-      const names = Array.isArray(keys) ? keys : [keys];
+      const names = keys == null ? Object.keys(store) : Array.isArray(keys) ? keys : [keys];
       return structuredClone(Object.fromEntries(names.filter(key => key in store).map(key => [key, store[key]])));
     },
     async set(values) { Object.assign(getStore(), structuredClone(values)); },
@@ -89,6 +89,29 @@ test("same URL skips existing files without reading or hashing them again", asyn
   assert.equal(result.complete, 0);
   assert.equal(prepared.length, 2);
   assert.equal(requests.length, 2);
+});
+
+test("author history counts unique completed image files and their posts in the current directory", async () => {
+  local.rootFolder = "X_IMG";
+  await save();
+  await save({ ...post, postId: "1840000000000000000", images: ["https://pbs.twimg.com/media/Three.jpg"] });
+  await save({ ...post, author: "other" });
+  await save({ ...post, images: [], videos: ["https://video.twimg.com/tweet_video/Video.mp4"] });
+  const alias = Object.values(local).find(r => r?.filename === "X_IMG/artist/图片/123456_1.jpg");
+  local['xis:url:["X_IMG/artist/图片","Alias","jpg"]'] = { ...alias };
+  local['xis:url:["X_IMG/artist/图片","Pending","jpg"]'] = { id: 80, filename: "X_IMG/artist/图片/999_1.jpg" };
+  local['xis:url:invalid-json'] = { ...alias };
+  records = {}; // Clearing native history or deleting files keeps successful records.
+  const before = historySearches.length;
+  assert.deepEqual(await message({ type: "XIS_AUTHOR_HISTORY", author: "ARTIST" }), { ok: true, posts: 2, images: 3 });
+  assert.equal(historySearches.length, before);
+  local.rootFolder = "another";
+  assert.deepEqual(await message({ type: "XIS_AUTHOR_HISTORY", author: "artist" }), { ok: true, posts: 0, images: 0 });
+});
+
+test("author history rejects invalid authors and untrusted pages", async () => {
+  assert.equal((await message({ type: "XIS_AUTHOR_HISTORY", author: "../artist" })).ok, false);
+  assert.equal((await message({ type: "XIS_AUTHOR_HISTORY", author: "artist" }, { url: "https://evil.com", tab: { id: 7 } })).ok, false);
 });
 
 test("date-prefixed naming preserves old filename history in normal and fast modes", async () => {
@@ -323,6 +346,22 @@ test("download interruption is reported and blob resources are released", async 
   assert.equal(result.failed, 1);
   changed({ id: 1, state: { current: "interrupted" } });
   assert.ok(releases.some(item => item.type === "XIS_RELEASE_DOWNLOAD" && item.id === 1));
+});
+
+test("native interruption reasons and the current image are returned to the page", async () => {
+  state = "in_progress";
+  const started = await message({ type: "XIS_DOWNLOAD_POST", post: { ...post, images: [one] } });
+  for (let i = 0; i < 20; i++) await tick();
+  const pending = await message({ type: "XIS_JOB_STATUS", jobId: started.jobId });
+  assert.equal(pending.current.index, 1);
+  assert.equal(pending.current.total, 1);
+  records[1].state = "interrupted";
+  records[1].error = "FILE_NO_SPACE";
+  const result = await finish(started);
+  assert.equal(result.failed, 1);
+  assert.match(result.error, /磁盘空间不足.*FILE_NO_SPACE/);
+  assert.match(result.error, /123456_1.jpg/);
+  assert.equal((await message({ type: "XIS_POST_STATUS", post: { ...post, images: [one] } })).saved, 0);
 });
 
 test("untrusted sources and invalid batches cannot start downloads", async () => {

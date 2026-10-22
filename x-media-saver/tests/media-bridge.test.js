@@ -6,9 +6,9 @@ const extractor = await readFile(new URL("../video-data.js", import.meta.url), "
 const bridge = await readFile(new URL("../media-bridge.js", import.meta.url), "utf8");
 const videoUrl = "https://video.twimg.com/tweet_video/Fixture.mp4";
 const data = { rest_id: "123", legacy: { extended_entities: { media: [{ type: "video", video_info: { variants: [{ content_type: "video/mp4", url: videoUrl }] } }] } } };
-function setup(responseData = data) {
+function setup(responseData = data, status = 200) {
   const messages = [], handlers = new Map();
-  const response = { ok: true, clone() { return { async json() { return responseData; } }; } };
+  const response = { ok: status >= 200 && status < 300, status, clone() { return { async json() { return responseData; } }; } };
   const promise = Promise.resolve(response);
   class FakeXHR {
     constructor() { this.listeners = new Map(); }
@@ -20,7 +20,7 @@ function setup(responseData = data) {
     postMessage(message, origin) { messages.push({ message, origin }); },
     addEventListener(type, callback) { handlers.set(type, callback); }
   };
-  const context = vm.createContext({ window, location: { origin: "https://x.com", href: "https://x.com/home" }, URL, XMLHttpRequest: FakeXHR });
+  const context = vm.createContext({ window, location: { origin: "https://x.com", href: "https://x.com/artist/media", pathname: "/artist/media" }, URL, XMLHttpRequest: FakeXHR });
   vm.runInContext(extractor, context);
   vm.runInContext(bridge, context);
   return { window, promise, messages, handlers, FakeXHR };
@@ -64,9 +64,32 @@ test("media-grid photo metadata includes every image and replays after content s
   const { window, messages, handlers } = setup(photoData);
   window.fetch("/i/api/graphql/test/UserMedia");
   await flush();
-  assert.equal(messages[0].message.type, "XIS_PHOTO_DATA");
-  assert.equal(messages[0].message.items[0].images.length, 2);
-  assert.equal(messages[0].message.items[0].author, "artist");
+  const photos = messages.find(item => item.message.type === "XIS_PHOTO_DATA");
+  assert.equal(photos.message.items[0].images.length, 2);
+  assert.equal(photos.message.items[0].author, "artist");
   handlers.get("message")({ source: window, origin: "https://x.com", data: { type: "XIS_REQUEST_VIDEO_CACHE" } });
-  assert.deepEqual(messages.at(-1), messages[0]);
+  assert.deepEqual(messages.at(-1), photos);
+});
+
+test("media timeline rate limits are visible, while unrelated API failures are ignored", async () => {
+  const { window, messages } = setup({}, 429);
+  window.fetch("/i/api/graphql/test/ExploreSidebar");
+  await flush();
+  assert.equal(messages.length, 0);
+  window.fetch("/i/api/graphql/test/UserMedia");
+  await flush();
+  assert.equal(messages[0].message.type, "XIS_TIMELINE_STATUS");
+  assert.equal(messages[0].message.path, "/artist/media");
+  assert.match(messages[0].message.error, /限流.*429/);
+});
+
+test("HTTP 200 API errors and XHR timeouts preserve a useful timeline failure reason", async () => {
+  const { window, messages, FakeXHR } = setup({ errors: [{ code: 88, message: "Rate limit exceeded" }] });
+  window.fetch("/i/api/graphql/test/UserMedia");
+  await flush();
+  assert.match(messages.at(-1).message.error, /429/);
+  const xhr = new FakeXHR();
+  xhr.open("GET", "/i/api/graphql/test/UserMedia");
+  xhr.listeners.get("timeout")();
+  assert.match(messages.at(-1).message.error, /超时/);
 });

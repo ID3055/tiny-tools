@@ -1,6 +1,6 @@
 import "./core.js";
 
-const { createDownloads, originalImage, originalVideo } = globalThis.XImageSaverCore;
+const { createDownloads, originalImage, originalVideo, normalizeFolder } = globalThis.XImageSaverCore;
 const ALLOWED_ORIGINS = new Set(["https://x.com", "https://www.x.com", "https://twitter.com", "https://www.twitter.com"]);
 const locks = new Map();
 const activeJobs = new Set();
@@ -162,17 +162,23 @@ async function runJob(jobId, downloads, job, force) {
   activeJobs.add(jobId);
   try {
     for (const item of downloads) {
+      job.current = { index: job.processed + 1, total: job.total, filename: item.filename };
+      await chrome.storage.session.set({ [jobId]: { ...job, ids: [...job.ids] } });
       try {
         const result = await saveMedia(item, force, forcedHashes);
         if (result.skipped || job.ids.includes(result.id)) job.skipped++;
         else job.ids.push(result.id);
       } catch (error) {
         job.failed++;
-        job.error = error.message || "媒体保存失败。";
+        job.error = `${item.filename.split("/").pop()}：${error.message || "媒体保存失败。"}`;
       }
       job.processed++;
       await chrome.storage.session.set({ [jobId]: { ...job, ids: [...job.ids] } });
     }
+  } catch (error) {
+    job.error = `后台任务失败：${error.message || "原因未知"}`;
+    job.failed += job.total - job.processed;
+    job.processed = job.total;
   } finally {
     job.runComplete = true;
     await chrome.storage.session.set({ [jobId]: job });
@@ -184,6 +190,27 @@ async function handleMessage(message, sender) {
   let origin;
   try { origin = new URL(sender.url).origin; } catch { return { ok: false, error: "页面来源无效。" }; }
   if (!ALLOWED_ORIGINS.has(origin) || !sender.tab) return { ok: false, error: "只支持 X 页面。" };
+  if (message?.type === "XIS_AUTHOR_HISTORY") {
+    if (typeof message.author !== "string" || !/^[A-Za-z0-9_]{1,15}$/.test(message.author)) throw new Error("作者信息无效。");
+    const records = await chrome.storage.local.get(null);
+    const root = normalizeFolder(records.rootFolder || "");
+    const prefix = root ? `${root}/` : "";
+    const files = new Set(), posts = new Set();
+    for (const [key, record] of Object.entries(records)) {
+      if (!key.startsWith("xis:url:") || !Number.isSafeInteger(record?.id) || !(record.completedAt > 0)) continue;
+      let scope;
+      try { [scope] = JSON.parse(key.slice("xis:url:".length)); } catch { continue; }
+      if (typeof scope !== "string" || !scope.startsWith(prefix)) continue;
+      const parts = scope.slice(prefix.length).split("/");
+      if (parts.length !== 2 || parts[0].toLowerCase() !== message.author.toLowerCase() || parts[1] !== "图片") continue;
+      // URL aliases and content-hash records can refer to the same saved file.
+      files.add(record.id);
+      const filename = record.filename?.replace(/\\/g, "/").split("/").pop();
+      const match = filename?.match(/(?:^|_)(\d{1,30})_\d+\.[^.]+$/);
+      if (match) posts.add(match[1]);
+    }
+    return { ok: true, posts: posts.size, images: files.size };
+  }
   if (message?.type === "XIS_PHOTO_HISTORY") {
     if (!Array.isArray(message.posts) || !message.posts.length || message.posts.length > 100) throw new Error("每批仅支持查询 1–100 条图片帖子。");
     const { rootFolder = "" } = await chrome.storage.local.get("rootFolder");
@@ -205,7 +232,10 @@ async function handleMessage(message, sender) {
     const jobId = `xis:job:${crypto.randomUUID()}`;
     const job = { ids: [], skipped: 0, failed: 0, processed: 0, total: downloads.length, runComplete: false, error: null, tabId: sender.tab.id };
     await chrome.storage.session.set({ [jobId]: job });
-    void runJob(jobId, downloads, job, message.force === true).catch(() => activeJobs.delete(jobId));
+    void runJob(jobId, downloads, job, message.force === true).catch(error => {
+      console.error("X 图片收藏：后台任务失败", error);
+      activeJobs.delete(jobId);
+    });
     return { ok: true, jobId, total: downloads.length };
   }
   if (message?.type === "XIS_POST_STATUS") {
@@ -222,9 +252,18 @@ async function handleMessage(message, sender) {
     const records = await Promise.all(job.ids.map(id => chrome.downloads.search({ id })));
     await Promise.all(records.map(([item]) => item && settleDownload(item.id, item.state)));
     const states = records.map(([item]) => item?.state || "interrupted");
+    const interrupted = records.find(([item]) => !item || item.state === "interrupted");
+    const reasons = {
+      NETWORK_FAILED: "网络连接失败", NETWORK_TIMEOUT: "网络连接超时", NETWORK_DISCONNECTED: "网络已断开",
+      SERVER_FORBIDDEN: "服务器拒绝访问", SERVER_UNAUTHORIZED: "需要重新登录", SERVER_BAD_CONTENT: "服务器返回的文件无效",
+      FILE_ACCESS_DENIED: "没有文件写入权限", FILE_NO_SPACE: "磁盘空间不足", FILE_NAME_TOO_LONG: "文件名过长",
+      FILE_BLOCKED: "文件被浏览器或系统阻止", USER_CANCELED: "下载被取消", USER_SHUTDOWN: "浏览器已关闭"
+    };
+    const item = interrupted?.[0];
+    const interruption = interrupted ? `${item?.filename?.split(/[\\/]/).pop() || "文件"}：${item ? `${reasons[item.error] || "浏览器中断下载"}（${item.error || "原因未知"}）` : "下载记录已丢失，无法确认保存结果"}。` : null;
     const remaining = job.total - job.processed + states.filter(state => state === "in_progress").length;
     const pending = job.runComplete ? remaining : Math.max(1, remaining);
-    const result = { ok: true, total: job.total, skipped: job.skipped, complete: states.filter(state => state === "complete").length, failed: job.failed + states.filter(state => state === "interrupted").length, pending, error: job.error };
+    const result = { ok: true, total: job.total, skipped: job.skipped, complete: states.filter(state => state === "complete").length, failed: job.failed + states.filter(state => state === "interrupted").length, pending, error: [job.error, interruption].filter(Boolean).join("\n") || null, current: job.current };
     if (!pending && job.runComplete) await chrome.storage.session.remove(message.jobId);
     return result;
   }
