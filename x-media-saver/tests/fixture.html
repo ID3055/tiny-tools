@@ -34,12 +34,13 @@
   let failNext = false;
   let requestId = 0;
   const batches = new Map();
-  window.fixture = { calls, batches, statusMode: "complete", statusPolls: 0, skipNext: false, savedPhotoPosts: new Set(), history: { posts: 7, images: 12 } };
+  window.fixture = { calls, batches, statusMode: "complete", statusPolls: 0, skipNext: false, savedPhotoPosts: new Set(), savedVideoPosts: new Set(), history: { posts: 7, images: 12 }, videoHistory: { posts: 4, videos: 6 } };
   window.chrome = { runtime: { async sendMessage(message) {
     calls.push(message);
-    if (message.type === "XIS_AUTHOR_HISTORY") return { ok: true, ...fixture.history };
+    if (message.type === "XIS_AUTHOR_HISTORY") return { ok: true, ...(message.mediaType === "video" ? fixture.videoHistory : fixture.history) };
     if (message.type === "XIS_POST_STATUS") return { ok: true, saved: message.post.postId === "222" ? 1 : 0, total: message.post.images.length + (message.post.videos?.length || 0) };
     if (message.type === "XIS_PHOTO_HISTORY") return { ok: true, items: message.posts.map(post => ({ postId: post.postId, total: post.images.length, saved: fixture.savedPhotoPosts.has(post.postId) ? post.images.length : 0 })) };
+    if (message.type === "XIS_VIDEO_HISTORY") return { ok: true, items: message.posts.map(post => ({ postId: post.postId, total: post.videos.length, saved: fixture.savedVideoPosts.has(post.postId) ? post.videos.length : 0 })) };
     if (message.type === "XIS_DOWNLOAD_POST") {
       const id = ++requestId;
       const total = message.post.images.length + (message.post.videos?.length || 0);

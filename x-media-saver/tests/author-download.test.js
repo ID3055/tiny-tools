@@ -162,3 +162,76 @@ test("fast location reports stalled loading without claiming all history is save
   assert.equal(queries, 1);
   assert.equal(task.updates.at(-1).phase, "stalled");
 });
+
+const videoPost = (author, postId, ...names) => ({ author, postId, images: ["https://pbs.twimg.com/media/Poster.jpg"], videos: names.map(name => `https://video.twimg.com/tweet_video/${name}.mp4`) });
+test("video batches save only the author's MP4s, reject unsafe URLs and stop after the in-flight post", async () => {
+  const task = setup({ mediaType: "video", posts: () => [videoPost("other", "9", "Other"), { ...videoPost("artist", "8", "One", "Two", "One"), videos: [...videoPost("artist", "8", "One", "Two", "One").videos, "https://evil.com/Video.mp4"] }, videoPost("artist", "7", "Later")] });
+  task.options.save = async post => { task.calls.push(post); task.controller.abort(); return { complete: 2, skipped: 0, failed: 0 }; };
+  assert.deepEqual(await run(task.options), { posts: 1, found: 2, saved: 2, skipped: 0, failed: 0 });
+  assert.deepEqual(task.calls[0].images, []);
+  assert.deepEqual(task.calls[0].videos, videoPost("artist", "8", "One", "Two").videos);
+  assert.equal(task.calls.length, 1);
+});
+test("video fast location batches history and retains partial-post totals when downloading", async () => {
+  const values = Array.from({ length: 251 }, (_, index) => videoPost("artist", String(index + 1), `Video${index}`));
+  values[250] = videoPost("artist", "251", "PartialOne", "PartialTwo");
+  const batches = [];
+  const task = setup({ mediaType: "video", posts: () => values, lookup: async batch => {
+    batches.push(batch.length);
+    return batch.map(post => ({ postId: post.postId, total: post.videos.length, saved: post.postId === "251" ? 1 : post.videos.length }));
+  } });
+  assert.deepEqual(await locate(task.options), { posts: 251, checked: 252, skipped: 251 });
+  assert.deepEqual(batches, [100, 100, 51]);
+  const located = task.updates.at(-1);
+  const resume = setup({ mediaType: "video", posts: () => [located.target], initialProgress: { posts: located.posts, postIds: located.postIds, found: located.checked, skipped: located.skipped, postId: located.target.postId, videos: located.target.videos, savedInPost: located.targetSaved } });
+  resume.options.save = async () => { resume.controller.abort(); return { complete: 1, skipped: 1, failed: 0 }; };
+  assert.deepEqual(await run(resume.options), { posts: 251, found: 252, saved: 1, skipped: 251, failed: 0 });
+});
+
+test("video URL query aliases count once and stay skipped across fast-to-normal transition", async () => {
+  const url = "https://video.twimg.com/tweet_video/Alias.mp4";
+  const value = { author: "artist", postId: "8", images: [], videos: [`${url}?tag=1`, `${url}?tag=2`] };
+  const task = setup({ mediaType: "video", posts: () => [value] });
+  task.options.save = async post => { task.calls.push(post); return { complete: post.videos.length, skipped: 0, failed: 0 }; };
+  assert.deepEqual(await run(task.options), { posts: 1, found: 1, saved: 1, skipped: 0, failed: 0 });
+  assert.equal(task.calls[0].videos.length, 1);
+  const skipped = setup({ mediaType: "video", posts: () => [value], skipMedia: [`${url}?tag=3`] });
+  assert.equal((await run(skipped.options)).found, 0);
+  assert.equal(skipped.calls.length, 0);
+});
+
+for (const runner of [run, locate]) {
+  test(`${runner.name} stops on a timeline error between posts and retains counts`, async () => {
+    let failed = false;
+    const task = setup({ posts: () => [photo("artist", "1", "One"), photo("artist", "2", "Two")],
+      diagnose: () => failed ? { reason: "rate-limit", error: "X 已限流（HTTP 429）" } : null,
+      save: async () => { failed = true; return { complete: 1, skipped: 0, failed: 0 }; },
+      lookup: async batch => { failed = true; return batch.map(p => ({ postId: p.postId, total: 1, saved: 1 })); } });
+    await runner(task.options);
+    assert.equal(task.updates.at(-1).phase, "blocked");
+    assert.equal(task.updates.at(-1).stopReason, "rate-limit");
+    assert.match(task.updates.at(-1).stopError, /429/);
+    assert.equal(task.updates.at(-1).posts, runner === run ? 1 : 2);
+  });
+  test(`${runner.name} drains collected posts before reporting an explicit timeline end`, async () => {
+    const task = setup({ posts: () => [photo("artist", "1", "One")], ended: () => true,
+      lookup: async batch => batch.map(p => ({ postId: p.postId, total: 1, saved: 1 })) });
+    await runner(task.options);
+    assert.equal(task.updates.at(-1).phase, "ended");
+    assert.equal(task.updates.at(-1).posts, 1);
+  });
+}
+
+for (const runner of [run, locate]) {
+  test(`${runner.name} finishes a cursor-exhausted page immediately after draining metadata`, async () => {
+    let waits = 0, expanded = false;
+    const task = setup({ posts: () => [photo("artist", "1", "One"), ...expanded ? [photo("artist", "2", "Two")] : []], ended: () => "exhausted",
+      wait: async () => { waits++; },
+      save: async () => { expanded = true; return { complete: 1, skipped: 0, failed: 0 }; },
+      lookup: async batch => { expanded = true; return batch.map(p => ({ postId: p.postId, total: 1, saved: 1 })); } });
+    await runner(task.options);
+    assert.equal(task.updates.at(-1).phase, "exhausted");
+    assert.equal(task.updates.at(-1).posts, 2);
+    assert.equal(waits, 0);
+  });
+}

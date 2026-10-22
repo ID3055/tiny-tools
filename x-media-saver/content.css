@@ -101,6 +101,12 @@
 #xis-author-download button + button { background: transparent; }
 #xis-author-download button:disabled { opacity: .65; cursor: default; }
 #xis-author-download button:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+#xis-author-download .xis-media-picker { display: flex; gap: 16px; margin: 8px 0; padding: 0; border: 0; }
+#xis-author-download .xis-media-picker legend { margin-bottom: 4px; }
+#xis-author-download .xis-media-picker label { display: inline-flex; align-items: center; gap: 6px; min-height: 48px; cursor: pointer; }
+#xis-author-download .xis-media-picker input { margin: 0; accent-color: #8ecdf8; }
+#xis-author-download .xis-media-picker input:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+#xis-author-download { max-height: calc(100dvh - 36px); overflow-y: auto; }
 #xis-author-download .xis-current-position { display: block; color: #8ecdf8; margin: 8px 0; }
 #xis-author-download .xis-current-position[hidden] { display: none; }
 #xis-author-download .xis-error-detail { color: #ffb4bc; max-height: 140px; overflow-y: auto; }
@@ -121,3 +127,5 @@
   color: #17222c;
   font: 600 12px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
+#xis-photo-marker .xis-start-box { border-color: #57c9ff; }
+#xis-photo-marker .xis-start-box span { background: #57c9ff; }

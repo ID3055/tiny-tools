@@ -27,6 +27,11 @@
   await new Promise(resolve => setTimeout(resolve, 30));
   fixture.statusMode = "pending";
   document.querySelector("main").style.minHeight = "4000px";
+  const initialTile = document.createElement("a");
+  initialTile.href = "/artist_one/status/888/photo/1";
+  initialTile.textContent = "当前图片网格缩略图";
+  initialTile.style.cssText = "position:absolute;top:700px;width:100px;height:100px";
+  document.getElementById("timeline").append(initialTile);
   window.scrollTo({ top: 600, behavior: "instant" });
   const firstPosition = window.scrollY;
   assert(firstPosition > 0, "Fixture starts partway down the media page");
@@ -47,6 +52,7 @@
   await until(() => historyStatus.textContent.includes("8 帖 · 14 张"));
   assert(historyStatus.textContent.includes("8 帖 · 14 张"), "Historical totals refresh after an in-flight download finishes");
   assert(fixture.calls.filter(call => call.type === "XIS_DOWNLOAD_POST").length === otherBefore + 1, "Stop starts no further posts and other authors remain excluded");
+  initialTile.style.top = "1200px";
   window.scrollTo({ top: 1100, behavior: "instant" });
   const resumePosition = window.scrollY;
   const sameDocument = document;
@@ -188,7 +194,7 @@
   const beforeFailureResume = fixture.calls.length;
   fast.click();
   await until(() => fixture.calls.slice(beforeFailureResume).some(call => call.type === "XIS_JOB_STATUS"));
-  window.postMessage({ type: "XIS_TIMELINE_STATUS", path: location.pathname, error: "X 请求过于频繁，已限流（HTTP 429）。" }, location.origin);
+  window.postMessage({ type: "XIS_TIMELINE_STATUS", path: location.pathname, search: location.search, requestId: 1, observedAt: Date.now(), reason: "rate-limit", error: "X 请求过于频繁，已限流（HTTP 429）。" }, location.origin);
   await new Promise(resolve => setTimeout(resolve, 30));
   fixture.statusMode = "complete";
   await until(() => !fast.disabled);
