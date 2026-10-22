@@ -87,7 +87,7 @@ python3 scripts/sync-installed.py /path/to/local-install
 - X / Twitter 内容脚本：识别已加载帖子、插入按钮，提取视频元数据。
 - `pbs.twimg.com`、`video.twimg.com`：读取 X 图片和视频。
 
-不需要 X API 密钥，不读取 Cookie，不上传媒体、浏览记录或账号信息，无远程脚本和统计分析。页面桥接只从 X 已加载的时间线 / 帖子响应中提取视频地址，不另行调用账号 API。
+不需要 X API 密钥，不读取 Cookie，不上传媒体、浏览记录或账号信息，无远程脚本和统计分析。页面桥接从 X 已加载的时间线 / 帖子响应中提取媒体地址和作者信息，并观察作者媒体请求的加载状态，不另行调用账号 API。
 
 SHA-256 使用随扩展附带的 MIT 开源库 `@noble/hashes`。版本、来源和校验值见 `vendor/noble-hashes/README.md`，运行时不下载代码。X 页面或数据结构变动后，可能需要调整选择器或视频解析逻辑。
 
